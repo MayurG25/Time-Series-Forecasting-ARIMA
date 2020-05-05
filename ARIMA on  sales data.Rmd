@@ -1,0 +1,395 @@
+---
+title: "ARIMA Time Series Implementation"
+output:
+  word_document: default
+  pdf_document: default
+  html_notebook: default
+---
+This is an implementation of [ARIMA](https://www.rdocumentation.org/packages/forecast/versions/8.12/topics/Arima) model for forecasting future sales for a retailer. The data consists product sales information of united states. There are three product categories mentioned in the data set Office supplies, Technology and Furniture
+
+```{r}
+# Importing required libraries
+library(tseries)
+library(forecast)
+library(dplyr)
+library(xlsx)
+library(readxl)
+library(ggplot2)
+
+# Assigning working directory
+setwd("F:/Mayur/ANALYTICS/Data scientist/Data scienc with R/Time series")
+
+# importing data
+df = read_excel("Sample - Superstore.xls",sheet = "Orders")
+View(df)
+glimpse(df)
+
+```
+
+---
+Checking missing values present in the data set
+```{r}
+colSums(is.na(df)) # no missing values
+```
+
+---
+Exploring sales variable
+```{r}
+summary(df$Sales)
+
+boxplot(df$Sales, main = "Product sales in United States", ylab="Sales in $",
+        color = "orange", border = "brown",
+        horizontal = FALSE, notch = TRUE)
+
+hist(df$Sales,breaks = 20,col = "skyblue3",main = "Histogram of united stste sales",xlab = "Sales in $")
+
+## observations with sales >=12000
+View(df %>% filter(Sales>=10000)) # techonology related products
+
+```
+
+---
+Checking unique product list
+```{r}
+length(unique(df$`Product Name`))
+length(unique(df$`Product ID`)) 
+# similar product id is assigned to different product names
+```
+
+---
+Checking uniqueness of customer id and customer name
+```{r}
+length(unique(df$`Customer ID`))
+length(unique(df$`Customer Name`))
+
+```
+
+---
+Further exploration of product id and product list
+```{r}
+product_list = df %>% group_by(`Product ID`,`Product Name`) %>% 
+            summarise(count = n()) %>% arrange(`Product ID`)
+
+length(unique(product_list$`Product Name`))
+length(unique(product_list$`Product ID`))
+dim(product_list)
+
+product_id = product_list %>% group_by(`Product ID`) %>% mutate(count = row_number())
+
+## finding out the prducts with similar product id
+similar_id = product_id %>% filter(count >= 2)
+
+View(df %>% filter(`Product ID` %in% similar_id$`Product ID`
+                  ) %>% 
+         arrange(`Product ID`))
+
+View(df %>% filter(`Product Name`%in% similar_id$`Product Name`) %>% 
+    arrange(`Product ID`))
+
+# keeping the records though it has similar product id
+# the records are less than 4% and sales value will not have major impact with inclusion of these records
+
+```
+
+---
+Category and sales comparison
+```{r}
+df %>% group_by(Category) %>% summarise(N = n(),
+                                        Sales_Max = max(Sales),
+                                        Sales_min = min(Sales),
+                                        Sales_Total = sum(Sales),
+                                        Sales_mean = mean(Sales))
+                                        
+df %>% filter(Sales<10000) %>% group_by(Category) %>% summarise(N = n(),
+                                        Sales_Max = max(Sales),
+                                        Sales_min = min(Sales),
+                                        Sales_Total = sum(Sales),
+                                        Sales_mean = mean(Sales))
+
+
+
+# drastic change in maximum sales amount, mean has around 8% change
+# removing observations with >=10000 sales amount
+# only 5 observations will get deleted
+
+df = df %>% filter(Sales < 10000)
+
+# deleting unwanted data sets
+product_id = NULL
+product_list = NULL
+similar_id = NULL
+
+```
+
+---
+```{r}
+# total countries in the data set
+table(df$Country) 
+# only united states
+
+# total states in the data set
+# visualising top sales contributors
+df %>% group_by(State) %>% summarise(Total_Sales = sum(Sales)) %>% 
+        ggplot() + geom_bar(aes(reorder(State,-Total_Sales),Total_Sales),stat = "identity")+
+        theme_minimal() + 
+        theme(axis.text.x = element_text(angle = 80, hjust = 1)) + 
+        labs(title = 'Statewise sales',x = 'State') 
+
+# California and New York are the top contributors
+
+View(df %>% group_by(State) %>% summarise(N = n(),
+                                Sales_Max = max(Sales),
+                                Sales_min = min(Sales),
+                                Sales_Total = sum(Sales),
+                                Sales_mean = mean(Sales))
+                                %>% arrange(desc(Sales_Total)))
+
+View(df %>% group_by(State,Category) %>% summarise(N = n(),
+                                          Sales_Max = max(Sales),
+                                          Sales_min = min(Sales),
+                                          Sales_Total = sum(Sales),
+                                          Sales_mean = mean(Sales))
+                                        %>% arrange(State,desc(Sales_Total)))
+
+# from the top 5 sales contributors only washington has high sales contribution by furniture category
+# all other top 4 sales contributord are having technology as highest sales contributor
+
+# relation between quantity and sales
+plot(df$Sales,df$Quantity,xlab = "Sales",ylab = "Quantity",main = "Sales vs Quantity")
+
+## which category has maximum quantity sold
+df %>% group_by(Category) %>% summarise(total_quantity = sum(Quantity),
+                                        total_sales = sum(Sales)) %>% arrange(desc(total_quantity))
+
+# Office supplies are having high quantity numbers where as technology sales amount is higher
+# may be technology items are more expensive
+
+```
+
+---
+```{r}
+# pulling out year and month out of order date variable
+library(lubridate)
+summary(df$`Order Date`)
+df = df %>% mutate(month_year = format(as.Date(`Order Date`),"%Y-%m"))
+
+```
+
+---
+```{r}
+# Exploring sub category vaiable
+df %>% group_by(`Sub-Category`) %>% summarise(Freq = n(),
+                                                   Qty = sum(Quantity)) %>% 
+         arrange(desc(Qty))
+
+# Papers and Binders are the top 2 items in terms of quantity sold
+df %>% group_by(`Sub-Category`) %>% summarise(Freq = n(),
+                                                   Qty = sum(Quantity),
+                                                    Total_Sale = sum(Sales)) %>% 
+         arrange(desc(Total_Sale))
+
+# sales is dominated by phones and chairs sub category
+# checking the sales percentage share of each category
+
+Sales_Share = df %>% group_by(Category) %>% 
+              summarise(Sales = sum(Sales))
+
+Sales_Share %>% mutate(Share_Per = paste0(round(Sales/sum(Sales)*100,2),"%")) %>% 
+         arrange(desc(Share_Per))
+
+# all three categories seems to have quiet equal share
+
+```
+
+---
+```{r}
+# Buidling time series model
+# forecasting at united states level
+ts_data = df %>%group_by(month_year) %>% summarise(Total_Sales = sum(Sales)) %>% 
+                arrange(month_year) %>% select(Total_Sales)
+
+# converting data into ts class
+ts_df = ts(ts_data,frequency = 12,start = c(2014,1))
+end(ts_df)
+
+plot.ts(ts_df) 
+plot(decompose(ts_df))
+```
+
+---
+```{r}
+# statistical check for stationarity
+adf.test(ts_df) #p-value is 0.07 
+```
+
+---
+```{r}
+# differencing time series
+ts_diff = diff(ts_df,differences = 2)
+plot.ts(ts_diff)
+adf.test(ts_diff)
+# time series looks stationary
+
+# selecting p,d,q
+acf(ts_diff, lag.max = 20)
+pacf(ts_diff, lag.max = 20)
+
+# selecting p as 1 and q as 0
+ts_model = arima(ts_diff,order = c(1,2,1))
+ts_model
+
+```
+
+---
+```{r}
+# forecasting for next two years
+ts_forecast = forecast:::forecast.Arima(ts_model,h=6)
+plot(ts_forecast)
+```
+
+---
+```{r}
+# checking residuals
+acf(ts_forecast$residuals, lag.max = 20)
+plot.ts(ts_forecast$residuals) # residuals looks random
+acf(ts_forecast$residuals)
+
+Box.test(ts_forecast$residuals,lag = 20,type = 'Ljung-Box')
+# p value is < 0.05
+# residuals are not independent
+# forecasting needs improvement
+# model is not performing well
+```
+
+
+---
+```{r}
+# using auto.arima function
+ts_auto_arima = auto.arima(ts_df,seasonal = TRUE,stationary = TRUE)
+ts_auto_arima
+
+auto_arima_forecast = forecast:::forecast.Arima(ts_auto_arima,h=12)
+plot(auto_arima_forecast)
+auto_arima_forecast
+
+library(TSPred)
+# predicted vd actual graph
+plotarimapred(ts_df,auto_arima_forecast$fitted,xlim = c(2014,2017))
+
+
+# checking residuals auto corelation
+acf(auto_arima_forecast$residuals)
+# no auto corelation
+```
+
+---
+```{r}
+# checking residuals
+plot(auto_arima_forecast$residuals) 
+# residuals are random
+
+Box.test(auto_arima_forecast$residuals,lag = 20,type = "Ljung-Box")
+# p value is 0.33 i.e. we can not reject null hypothesis
+# we can say residuals are independent
+# model is performing well
+```
+
+---
+```{r}
+# mean squared error
+mean(auto_arima_forecast$residuals)
+sqrt(mean(auto_arima_forecast$residuals))
+
+# checking mean absolute percentage error
+mean((abs((ts_df-auto_arima_forecast$fitted)/ts_df))*100)
+# the model is off by 29%
+# the model is performing well at (100-29) 71%
+
+```
+
+---
+Forecast for  overall united states
+```{r}
+forecasted_values = as.data.frame(auto_arima_forecast)
+forecasted_values
+```
+
+---
+Creating forecast at a category level
+```{r}
+Category_Forecast = function(data,Catg)
+{
+  ts_data = data %>% filter(Category == Catg) %>%
+          group_by(month_year) %>% summarise(Total_Sales = sum(Sales)) %>%
+          arrange(month_year) %>% select(Total_Sales)
+
+  # converting data into ts class
+  ts_df = ts(ts_data,frequency = 12,start = c(2014,1))
+  end(ts_df)
+
+  print(plot.ts(ts_df,main="Time series plot")) 
+  #plot(decompose(ts_df))
+
+  # statistical check for stationarity
+  adf.test(ts_df) 
+  
+  # checking with auto arima
+  ts_auto_arima = auto.arima(ts_df,seasonal = TRUE,stationary = TRUE)
+
+  auto_arima_forecast = forecast:::forecast.Arima(ts_auto_arima,h=12)
+  #print(auto_arima_forecast)
+  
+  # predicted vd actual graph
+  library(TSPred)
+  plotarimapred(ts_df,auto_arima_forecast$fitted,xlim = c(2014,2017),
+                main = "Actual vs Fprecasted Graph")
+   
+  # checking residuals auto corelation
+  acf(auto_arima_forecast$residuals)
+  
+  print("checking stationarity of residuals")
+  print(adf.test(auto_arima_forecast$residuals))
+  
+  # checking residuals
+  plot(auto_arima_forecast$residuals,main="Residual plot",xlab="Residuals") 
+  # residuals are random
+  
+  print(plot(auto_arima_forecast))
+  
+  # mean squared error
+  mean(auto_arima_forecast$residuals)
+  sqrt(mean(auto_arima_forecast$residuals))
+  
+  # checking mean absolute percentage error
+  print("Mean absolute percentage error")
+  print(mean((abs((ts_df-auto_arima_forecast$fitted)/ts_df))*100))
+  
+  print(Box.test(auto_arima_forecast$residuals,lag = 20,type = "Ljung-Box"))
+
+  forecasted_values = as.data.frame(auto_arima_forecast)
+  
+  return(forecasted_values)
+}
+
+Technology_forecast = Category_Forecast(data = df,Catg = "Technology")
+Technology_forecast
+
+```
+
+---
+```{r}
+# forecasting for furniture product
+Furniture_forecast = Category_Forecast(data = df,Catg = "Furniture")
+Furniture_forecast
+
+```
+
+
+---
+Office supplies forecast
+```{r}
+OS_forecast = Category_Forecast(df,"Office Supplies")
+OS_forecast
+```
+
+
